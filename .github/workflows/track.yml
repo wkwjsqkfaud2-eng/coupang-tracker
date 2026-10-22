@@ -2,11 +2,13 @@ name: 쿠팡 가격 수집
 
 on:
   schedule:
-    - cron: "17 * * * *"
+    - cron: "*/10 * * * *"
   workflow_dispatch:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 concurrency:
   group: track
@@ -15,20 +17,44 @@ concurrency:
 jobs:
   track:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+      - name: 이전 가격 기록 불러오기
+        uses: actions/cache/restore@v4
+        with:
+          path: data
+          key: history-${{ github.run_id }}
+          restore-keys: history-
       - name: 가격 수집 + 웹페이지 생성
         env:
           COUPANG_ACCESS_KEY: ${{ secrets.COUPANG_ACCESS_KEY }}
           COUPANG_SECRET_KEY: ${{ secrets.COUPANG_SECRET_KEY }}
         run: python tracker.py
-      - name: 결과 저장
+      - name: 가격 기록 저장
+        uses: actions/cache/save@v4
+        with:
+          path: data
+          key: history-${{ github.run_id }}
+      - name: 웹페이지 올리기
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: docs
+      - name: 웹페이지 배포
+        id: deployment
+        uses: actions/deploy-pages@v4
+      - name: 1시간마다 저장소에 백업
         run: |
-          git config user.name "price-bot"
-          git config user.email "price-bot@users.noreply.github.com"
-          git add data docs
-          git diff --cached --quiet || git commit -m "가격 업데이트 $(TZ=Asia/Seoul date '+%m/%d %H:%M')"
-          git push
+          last=$(git log -1 --format=%ct -- data/history.json 2>/dev/null)
+          if [ $(( $(date +%s) - ${last:-0} )) -ge 3600 ]; then
+            git config user.name "price-bot"
+            git config user.email "price-bot@users.noreply.github.com"
+            git add data
+            git diff --cached --quiet || git commit -m "가격 백업 $(TZ=Asia/Seoul date '+%m/%d %H:%M')"
+            git push
+          fi
