@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>__TITLE__</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{
+  --bg:#f6f5f2;--card:#fff;--ink:#1d1d1b;--sub:#6b6a66;--line:#e6e3dc;
+  --hot:#e5402b;--hot-bg:#fdecea;--low:#1f7a4d;--low-bg:#e5f4ec;--accent:#3457d5;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#141413;--card:#1f1f1d;--ink:#f1efe9;--sub:#a3a19b;--line:#33322f;
+  --hot:#ff6a52;--hot-bg:#3a1f1a;--low:#4cc38a;--low-bg:#173326;--accent:#7d97ff;}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard","Noto Sans KR",sans-serif;
+  -webkit-font-smoothing:antialiased}
+header{padding:20px 16px 8px;max-width:760px;margin:0 auto}
+h1{font-size:22px;margin:0 0 4px;letter-spacing:-.02em}
+.meta{color:var(--sub);font-size:13px}
+.bar{position:sticky;top:0;z-index:5;background:var(--bg);padding:8px 16px 10px;max-width:760px;margin:0 auto}
+.tabs{display:flex;gap:6px;margin-bottom:8px}
+.tab{flex:1;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:10px;
+  padding:9px 0;font-size:14px;font-weight:600;cursor:pointer}
+.tab.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.row{display:flex;gap:6px}
+input,select{font:inherit;font-size:14px;border:1px solid var(--line);background:var(--card);color:var(--ink);
+  border-radius:10px;padding:9px 10px}
+input{flex:1;min-width:0}
+main{max-width:760px;margin:0 auto;padding:4px 16px 40px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;margin-bottom:10px;overflow:hidden}
+.top{display:flex;gap:12px;padding:12px;cursor:pointer}
+.thumb{width:76px;height:76px;border-radius:10px;object-fit:cover;background:var(--line);flex:none}
+.info{min-width:0;flex:1}
+.name{font-size:14px;line-height:1.35;margin:0 0 6px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.badges{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:4px}
+.b{font-size:11px;font-weight:700;padding:2px 6px;border-radius:6px}
+.b.hot{background:var(--hot-bg);color:var(--hot)}
+.b.low{background:var(--low-bg);color:var(--low)}
+.b.rk{background:var(--line);color:var(--sub)}
+.price{font-size:18px;font-weight:800;letter-spacing:-.02em}
+.was{color:var(--sub);font-size:12px;text-decoration:line-through;margin-left:6px;font-weight:400}
+.detail{display:none;border-top:1px solid var(--line);padding:12px}
+.card.open .detail{display:block}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px;text-align:center}
+.stats div{background:var(--bg);border-radius:8px;padding:6px 0;font-size:12px;color:var(--sub)}
+.stats b{display:block;color:var(--ink);font-size:14px}
+.chart{height:180px;margin-bottom:10px}
+.btns{display:flex;gap:6px}
+.btn{flex:1;border:0;border-radius:10px;padding:11px 0;font:inherit;font-size:14px;font-weight:700;cursor:pointer;text-align:center;text-decoration:none}
+.btn.k{background:#fee500;color:#191600}
+.btn.c{background:var(--accent);color:#fff}
+.empty{text-align:center;color:var(--sub);padding:40px 0}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:var(--bg);
+  padding:10px 16px;border-radius:999px;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none}
+.toast.on{opacity:1}
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title"></h1>
+  <div class="meta" id="meta"></div>
+</header>
+<div class="bar">
+  <div class="tabs">
+    <button class="tab on" data-f="hot">🔥 핫딜</button>
+    <button class="tab" data-f="low">📉 역대최저</button>
+    <button class="tab" data-f="all">전체</button>
+  </div>
+  <div class="row">
+    <input id="q" type="search" placeholder="상품 이름 검색">
+    <select id="sort">
+      <option value="drop">하락률순</option>
+      <option value="rank">인기순</option>
+      <option value="price">낮은가격순</option>
+    </select>
+  </div>
+</div>
+<main id="list"></main>
+<div class="toast" id="toast"></div>
+
+<script>
+const D = /*__DATA__*/null;
+const won = n => n.toLocaleString('ko-KR') + '원';
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let filter = 'hot', charts = {};
+
+document.getElementById('title').textContent = D.title;
+document.getElementById('meta').textContent =
+  `마지막 업데이트 ${D.updated} · 추적 중 ${D.total.toLocaleString()}개 · 평소보다 ${D.hotPercent}% 이상 싸면 핫딜`;
+
+function kakaoText(i){
+  const head = i.hot ? '🔥 [핫딜]' : i.low ? '📉 [역대최저]' : '🛒';
+  let t = `${head} ${i.name}\n\n💰 ${won(i.cur)}`;
+  if (i.drop > 0) t += ` (평소 ${won(i.typical)}, -${i.drop}%)`;
+  if (i.rocket) t += `\n🚀 로켓배송`;
+  t += `\n\n👉 ${i.url}\n\n이 포스팅은 쿠팡 파트너스 활동의 일환으로, 이에 따른 일정액의 수수료를 제공받습니다.`;
+  return t;
+}
+
+function render(){
+  const q = document.getElementById('q').value.trim().toLowerCase();
+  const s = document.getElementById('sort').value;
+  let items = D.items.filter(i =>
+    (filter === 'all' || (filter === 'hot' ? i.hot : i.low)) &&
+    (!q || i.name.toLowerCase().includes(q)));
+  items.sort((a,b) => s === 'price' ? a.cur - b.cur :
+                      s === 'rank' ? (a.rank ?? 999) - (b.rank ?? 999) : b.drop - a.drop);
+  Object.values(charts).forEach(c => c.destroy()); charts = {};
+  const list = document.getElementById('list');
+  if (!items.length){
+    list.innerHTML = `<div class="empty">${filter === 'hot'
+      ? '아직 핫딜이 없어요.<br>가격 기록이 며칠 쌓이면 나타나요.' : '해당하는 상품이 없어요.'}</div>`;
+    return;
+  }
+  list.innerHTML = items.slice(0, 300).map(i => `
+    <div class="card" data-id="${i.id}">
+      <div class="top">
+        ${i.image ? `<img class="thumb" loading="lazy" src="${esc(i.image)}" alt="">` : `<div class="thumb"></div>`}
+        <div class="info">
+          <p class="name">${esc(i.name)}</p>
+          <div class="badges">
+            ${i.hot ? `<span class="b hot">-${i.drop}%</span>` : ''}
+            ${i.low ? `<span class="b low">역대최저</span>` : ''}
+            ${i.rocket ? `<span class="b rk">로켓</span>` : ''}
+            ${i.rank ? `<span class="b rk">${esc(i.sources[0] || '')} ${i.rank}위</span>` : ''}
+          </div>
+          <div class="price">${won(i.cur)}${i.drop > 0 ? `<span class="was">${won(i.typical)}</span>` : ''}</div>
+        </div>
+      </div>
+      <div class="detail">
+        <div class="stats">
+          <div>최저<b>${won(i.min)}</b></div>
+          <div>평소<b>${won(i.typical)}</b></div>
+          <div>최고<b>${won(i.max)}</b></div>
+        </div>
+        <div class="chart"><canvas></canvas></div>
+        <div class="btns">
+          <button class="btn k" data-copy="${i.id}">카톡 문구 복사</button>
+          <a class="btn c" href="${esc(i.url)}" target="_blank" rel="noopener">쿠팡에서 보기</a>
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+function drawChart(card, i){
+  const css = getComputedStyle(document.documentElement);
+  const ink = css.getPropertyValue('--sub').trim(), line = css.getPropertyValue('--line').trim();
+  const pts = i.points.map(([t, p]) => ({x: new Date(t.replace(' ', 'T') + ':00+09:00').getTime(), y: p}));
+  pts.push({x: Date.now(), y: i.cur});
+  charts[i.id] = new Chart(card.querySelector('canvas'), {
+    type: 'line',
+    data: {datasets: [{data: pts, stepped: 'before', borderColor: css.getPropertyValue('--accent').trim(),
+      borderWidth: 2, pointRadius: 0, pointHitRadius: 10, fill: false}]},
+    options: {responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: {legend: {display: false}, tooltip: {callbacks: {
+        title: c => new Date(c[0].parsed.x).toLocaleDateString('ko-KR'),
+        label: c => won(c.parsed.y)}}},
+      scales: {
+        x: {type: 'linear', grid: {display: false}, ticks: {color: ink, maxTicksLimit: 5,
+          callback: v => { const d = new Date(v); return `${d.getMonth()+1}/${d.getDate()}`; }}},
+        y: {grid: {color: line}, ticks: {color: ink, maxTicksLimit: 4,
+          callback: v => v >= 10000 ? (v/10000).toFixed(v % 10000 ? 1 : 0) + '만' : v.toLocaleString()}}}}
+  });
+}
+
+document.getElementById('list').addEventListener('click', e => {
+  const copy = e.target.closest('[data-copy]');
+  if (copy){
+    const i = D.items.find(x => x.id === copy.dataset.copy);
+    navigator.clipboard.writeText(kakaoText(i)).then(() => toast('복사했어요! 단톡방에 붙여넣으세요'));
+    return;
+  }
+  const top = e.target.closest('.top'); if (!top) return;
+  const card = top.parentElement, id = card.dataset.id;
+  card.classList.toggle('open');
+  if (card.classList.contains('open') && !charts[id] && window.Chart)
+    drawChart(card, D.items.find(x => x.id === id));
+});
+
+document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
+  document.querySelectorAll('.tab').forEach(x => x.classList.remove('on'));
+  t.classList.add('on'); filter = t.dataset.f; render();
+});
+document.getElementById('q').oninput = render;
+document.getElementById('sort').onchange = render;
+
+function toast(msg){
+  const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('on');
+  setTimeout(() => t.classList.remove('on'), 1800);
+}
+render();
+</script>
+</body>
+</html>
